@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href='main.css' >
+  <title>YoutubeSwitcher</title>
+  <!--<script type="text/javascript" src='./data.js'></script>-->
+</head>
+<body>
+    <div id='fullDiv'>
+        <iframe id='player1' allowfullscreen></iframe>
+        <iframe id='player2' allowfullscreen></iframe>
+    </div>
+
+    <div class='column'>
+
+        <button id="authorize_button">Authorize</button>
+        <button id="signout_button">Sign Out</button>
+
+        <div>
+            <button id='pause'>Pause</button>
+            <button id='audio'>Audio</button>
+            <button onclick='openFullscreen()'>Fullscreen</button>
+        </div>
+        
+        <label>
+            Playing index: <span id='playingIndex' style='font-weight: 600'></span>
+        </label>
+        <label>
+            Time: <input id='time' type='number' /> msl
+        </label>
+
+        <div>
+            <b>Database: </b>
+            <button onclick='loadData()'>Refresh</button>
+            <div id='database'></div>
+        </div>
+
+        <div>
+            <b style='color: red'> Errors: </b>
+            <div id='error'></div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        /*
+            appednChild method does not work on TV
+        */
+        const eFullDiv = document.getElementById('fullDiv');
+        const ePlayer1 = document.getElementById('player1');
+        const ePlayer2 = document.getElementById('player2');
+
+        const eIndex = document.getElementById('playingIndex');
+
+        const ePause = document.getElementById('pause');
+        const eAudio = document.getElementById('audio');
+
+        const eTime = document.getElementById('time');
+        const eDatabase = document.getElementById('database');
+        const eError = document.getElementById('error');
+        
+        let database = [];
+        let currentPlayingIndex = -1;
+        let audio = false;
+        let pause = false;
+
+        let shouldRefreshPage = true;
+        setTimeout(() => {
+            if(shouldRefreshPage)
+                location.reload();
+        }, 10000)
+        
+        const getCookie = (name) => {           // return value | undefined
+            const cookies = document.cookie.split('; ').map(cookie => cookie.split('='));
+            const searchedCookie = cookies.find(cookie => cookie[0] === name);
+            return searchedCookie ? searchedCookie[1] : undefined;
+        }
+
+        const logError = (e) => {
+            console.log(e);
+            const msg = 'Error: ' + e.result.error.message;
+            eError.innerHTML = eError.innerHTML + 'msg<br>';
+        }
+        
+        const startSwitching = async () => {
+            if(pause){
+                setTimeout(startSwitching, parseInt(eTime.value));
+                return;
+            }
+
+            if(database.length === 0){
+                // no data
+                await loadData();
+                if(database.length === 0){
+                    // still no data => try it later again
+                    setTimeout(startSwitching, parseInt(eTime.value));
+                    return;
+                }
+            }
+
+            let newIndex = currentPlayingIndex + 1;
+            if(newIndex === database.length)
+                newIndex = 0;
+            while(newIndex !== currentPlayingIndex){
+                const newUrl = database[currentPlayingIndex];
+
+                if(newUrl !== '' || newUrl !== ' ') break;
+                
+                newIndex++;
+                if(newIndex === database.length)
+                    newIndex = 0;
+            }
+            
+            currentPlayingIndex = newIndex;
+            eIndex.innerHTML = currentPlayingIndex + '';
+
+            const ePlayerNew = currentPlayingIndex%2 === 0 ? ePlayer1 : ePlayer2;
+            const ePlayerOld = currentPlayingIndex%2 === 1 ? ePlayer1 : ePlayer2;
+
+            ePlayerNew.src = database[currentPlayingIndex] + '?autoplay=1&mute=' + (audio ? '0' : '1');
+            
+            setTimeout(() => {
+                ePlayerNew.style.display = 'block';
+                ePlayerOld.style.display = 'none';
+                ePlayerOld.src = '';
+            }, 2000);
+
+            setTimeout(startSwitching, parseInt(eTime.value));
+        }
+
+        document.addEventListener('DOMContentLoaded', (event) => {
+            ePause.onclick = () => {
+                pause = !pause;
+                ePause.innerHTML = pause ? 'Play' : 'Pause';
+            }
+            eAudio.onclick = () => {
+                audio = !audio;
+                eAudio.innerHTML = audio ? 'Mute' : 'Unmute';
+            }
+            
+            // input time
+            const ptime = getCookie('time');
+            eTime.value = ptime ? ptime : 30000;
+            eTime.onchange = (ev) => {
+                // save time in the cookie time
+                document.cookie = 'time=' + ev.target.value;
+            }
+        });
+        
+        </script>
+
+
+    <script type="text/javascript">
+        const loadData = async () => {
+            const content = await getDataFromServer();
+
+            database = [];
+            for(let i in content){
+                if(i === '0') continue;   // skip garbage
+
+                const baseUrl = content[i].paragraph.elements[0].textRun.content;
+                const url = /[\w:/.?=-]*/.exec(baseUrl)[0];
+                const embedUrl = url.replace('watch?v=', 'embed/');
+                database.push(embedUrl);
+            }
+
+            eDatabase.innerHTML = database.join('<br>');
+        }
+
+
+        // Google Docs API
+    
+        // Client ID and API key from the Developer Console
+        var CLIENT_ID = '852940538025-48ui2g7p6s4lbbv5t08kjokuto3t5kvh.apps.googleusercontent.com'
+        var API_KEY = 'AIzaSyDZGr2smWYD6QtThr_4KLCoEBLCAG6nbHg';
+
+        // Array of API discovery doc URLs for APIs used by the quickstart
+        var DISCOVERY_DOCS = ['https://docs.googleapis.com/$discovery/rest?version=v1'];
+
+        // Authorization scopes required by the API; multiple scopes can be
+        // included, separated by spaces.
+        var SCOPES = "https://www.googleapis.com/auth/documents.readonly";
+
+        var authorizeButton = document.getElementById('authorize_button');
+        var signoutButton = document.getElementById('signout_button');
+
+        /**
+         *  On load, called to load the auth2 library and API client library.
+         */
+        function handleClientLoad() {
+            gapi.load('client:auth2', initClient);
+        }
+
+        /**
+         *  Initializes the API client library and sets up sign-in state
+         *  listeners.
+         */
+        function initClient() {
+                gapi.client.init({
+                apiKey: API_KEY,
+                clientId: CLIENT_ID,
+                discoveryDocs: DISCOVERY_DOCS,
+                scope: SCOPES
+            }).then(function() {
+                // Listen for sign-in state changes.
+                gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
+
+                // Handle the initial sign-in state.
+                updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+                authorizeButton.onclick = handleAuthClick;
+                signoutButton.onclick = handleSignoutClick;
+            }).catch(e => {
+                logError(e);
+                setTimeout(handleClientLoad, 3000);
+            });
+        }
+
+        /**
+         *  Called when the signed in status changes, to update the UI
+         *  appropriately. After a sign-in, the API is called.
+         */
+        function updateSigninStatus(isSignedIn) {
+            shouldRefreshPage = false;
+            if (isSignedIn) {
+                authorizeButton.style.display = 'none';
+                signoutButton.style.display = 'block';
+                startSwitching();
+            } else {
+                authorizeButton.style.display = 'block';
+                signoutButton.style.display = 'none';
+            }
+        }
+
+        /**
+         *  Sign in the user upon button click.
+         */
+        function handleAuthClick(event) {
+            gapi.auth2.getAuthInstance().signIn();
+        }
+
+        /**
+         *  Sign out the user upon button click.
+         */
+        function handleSignoutClick(event) {
+            gapi.auth2.getAuthInstance().signOut();
+        }
+
+        /**
+         * Prints the title of a sample doc:
+         * https://docs.google.com/spreadsheets/d/1h4YonX6IPP7z7i3Ww96yEn4IVH7e15uw4Qq9dCGjqNU/edit#gid=0
+         */
+        async function getDataFromServer() {
+            try{
+                const response = await gapi.client.docs.documents.get({
+                    documentId: '1WdXHwCvmrgGh_hHCuxBLqgpqj3P-ru3m3Dquo5zRtMM'
+                });
+                const doc = response.result;
+                return doc.body.content;
+            } catch (e) {
+                console.log(e);
+                const msg = 'Error: ' + e.result.error.message;
+                eError.innerHTML = eError.innerHTML + 'msg<br>';
+            }
+            return '';
+        }
+    </script>
+    <script async="" defer="" onload="this.onload=function(){};handleClientLoad()" onreadystatechange="if (this.readyState === 'complete') this.onload()" src="https://apis.google.com/js/api.js"></script>
+</body>
+</html>
